@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
-from config import CONVERSATIONS_DIR
+import shutil
+from config import CONVERSATIONS_DIR, ARCHIVE_DIR
 
 
 def get_all_sessions():
@@ -14,6 +15,7 @@ def get_all_sessions():
             sessions.append({
                 "id": file.stem,
                 "title": data.get("title", "Untitled"),
+                "preview": extract_preview(data),
                 "updated": data.get("last_updated"),
                 "path": file
             })
@@ -45,8 +47,27 @@ def rename_session(session_id, new_title):
         json.dump(data, f, indent=2)
 
 
-def delete_session(session_id):
-    file = CONVERSATIONS_DIR / f"{session_id}.json"
+def archive_session(session_id):
+    src = CONVERSATIONS_DIR / f"{session_id}.json"
+    dst = ARCHIVE_DIR / f"{session_id}.json"
 
-    if file.exists():
-        file.unlink()
+    if src.exists():
+        shutil.move(src, dst)
+
+def extract_preview(data):
+    try:
+        for msg in data.get("history", []):
+            if msg.get("role") == "user":
+                for block in msg.get("content", []):
+                    if block.get("type") == "text":
+                        text = block.get("text", "").strip()
+
+                        # skip system junk
+                        if text.startswith("<system-reminder"):
+                            continue
+
+                        return text[:80]
+    except Exception:
+        pass
+
+    return ""

@@ -2,7 +2,7 @@ import typer
 from sessions import (
     get_all_sessions,
     rename_session,
-    delete_session
+    archive_session
 )
 from search import search_sessions
 from utils import run_cortex_resume, run_cortex_continue
@@ -15,18 +15,25 @@ def list():
     sessions = get_all_sessions()
 
     for i, s in enumerate(sessions):
-        print(f"{i+1}. {s['title']} ({s['id']})")
+        preview = s.get("preview", "")
+        print(f"{i+1}. {s['title']}")
+        if preview:
+            print(f"   → {preview}")
 
 
 @app.command()
-def open(index: int):
+def open(index: int = None):
     sessions = get_all_sessions()
 
-    try:
+    if index is None:
+        from utils import pick_session_with_fzf
+        session = pick_session_with_fzf(sessions)
+        if not session:
+            return
+    else:
         session = sessions[index - 1]
-        run_cortex_resume(session["id"])
-    except IndexError:
-        print("Invalid selection")
+
+    run_cortex_resume(session["id"])
 
 
 @app.command()
@@ -48,8 +55,8 @@ def delete(index: int):
     sessions = get_all_sessions()
     session = sessions[index - 1]
 
-    delete_session(session["id"])
-    print("Deleted")
+    archive_session(session["id"])
+    print("Archived")
 
 
 @app.command()
