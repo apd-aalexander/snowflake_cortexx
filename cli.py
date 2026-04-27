@@ -66,6 +66,10 @@ def search(keyword: str):
     for r in results:
         print(f"{r['title']} ({r['id']})")
 
+@app.command()
+def web():
+    import subprocess
+    subprocess.run(["python", "~/.local/bin/snowflake_cortexx/web/cortex_sessions.py"])
 
 if __name__ == "__main__":
     app()
