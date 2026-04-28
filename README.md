@@ -136,7 +136,7 @@ python %USERPROFILE%\.local\bin\snowflake_cortexx\cli.py %*
 ---
 
 
-## 📁 Directory Structure
+# 📁 Directory Structure
 
 ```
 snowflake_cortexx/
@@ -151,9 +151,9 @@ snowflake_cortexx/
 
 ---
 
-## Usage
+# Usage
 
-### List Sessions
+## List Sessions
 
 ```
 cortexx list
@@ -173,7 +173,7 @@ Uses `fzf` to select a session.
 
 ---
 
-### Open Session by Index
+## Open Session by Index
 
 ```
 cortexx open <index>
@@ -183,7 +183,7 @@ Resumes a session by its index from the list.
 
 ---
 
-### Continue Last Session
+## Continue Last Session
 
 ```
 cortexx last
@@ -197,7 +197,7 @@ cortex --continue
 
 ---
 
-### Rename Session
+## Rename Session
 
 ```
 cortexx rename <index> "New Title"
@@ -205,7 +205,7 @@ cortexx rename <index> "New Title"
 
 ---
 
-### Archive Session (Safe Delete)
+## Archive Session (Safe Delete)
 
 ```
 cortexx delete <index>
@@ -219,7 +219,7 @@ Moves session to:
 
 ---
 
-### Search Sessions
+## Search Sessions
 
 ```
 cortexx search <keyword>
@@ -249,7 +249,7 @@ http://127.0.0.1:8470
 
 ---
 
-## Notes
+# Notes
 
 * Sessions are stored in:
 
@@ -264,14 +264,14 @@ http://127.0.0.1:8470
 
 ---
 
-## Troubleshooting
+# Troubleshooting
 
-### No sessions showing
+## No sessions showing
 
 * Check path: `~/.snowflake/cortex/conversations/`
 * Ensure files exist and are valid JSON
 
-### Encoding errors
+## Encoding errors
 
 * Ensure files are opened with `encoding="utf-8"`
 
