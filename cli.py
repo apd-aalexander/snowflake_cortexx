@@ -68,8 +68,14 @@ def search(keyword: str):
 
 @app.command()
 def web():
+    from pathlib import Path
     import subprocess
-    subprocess.run(["python", "~/.local/bin/snowflake_cortexx/web/cortex_sessions.py"])
+    import sys
+
+    base_dir = Path(__file__).parent
+    web_script = base_dir / "web" / "cortex_sessions.py"
+
+    subprocess.run([sys.executable, str(web_script)])
 
 if __name__ == "__main__":
     app()

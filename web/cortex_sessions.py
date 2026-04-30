@@ -22,7 +22,6 @@ import urllib.parse
 import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
-import platform
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -95,7 +94,7 @@ def extract_preview(session_id: str) -> str:
     if not history_file.exists():
         return ""
     try:
-        with open(history_file) as f:
+        with open(history_file, encoding="utf-8") as f:
             for line in f:
                 entry = json.loads(line)
                 if entry.get("role") != "user":
@@ -111,8 +110,8 @@ def extract_preview(session_id: str) -> str:
                     text = content.strip()
                     if text and not text.startswith("<system-reminder"):
                         return text[:200]
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Error reading history file {history_file}: {e}")
     return ""
 
 
@@ -125,19 +124,28 @@ def scan_conversations(db: sqlite3.Connection) -> int:
         if path.name.endswith(".history.jsonl"):
             continue
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 meta = json.load(f)
-        except Exception:
+        except Exception as e:
+            print(f"Error reading meta file {path}: {e}")
             continue
         sid = meta.get("session_id", path.stem)
         existing = db.execute("SELECT id FROM sessions WHERE session_id = ?", (sid,)).fetchone()
         if existing:
-            # Update last_updated from file if newer
-            db.execute(
-                "UPDATE sessions SET last_updated = COALESCE(?, last_updated) WHERE session_id = ?",
-                (meta.get("last_updated"), sid),
-            )
-            continue
+          db.execute(
+              """UPDATE sessions SET
+                last_updated = COALESCE(?, last_updated),
+                connection_name = COALESCE(?, connection_name),
+                working_dir = COALESCE(?, working_dir)
+                WHERE session_id = ?""",
+              (
+                  meta.get("last_updated"),
+                  meta.get("connection_name"),
+                  meta.get("working_directory"),
+                  sid,
+              ),
+          )
+          continue
         preview = extract_preview(sid)
         title = meta.get("title", "")
         # Use title as label if it's not the generic auto-generated one
@@ -163,47 +171,34 @@ def scan_conversations(db: sqlite3.Connection) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Clipboard
+# Terminal launcher (cross-platform)
 # ---------------------------------------------------------------------------
-def copy_to_clipboard(text):
-    """Copy text to clipboard in a cross-platform way. Returns True if successful."""
-    system = platform.system()
+def launch_cortex_in_terminal(args: list[str]) -> None:
+    """Open a new terminal window running a cortex command."""
+    cortex_path = shutil.which("cortex") or "cortex"
+    cmd_str = f"{cortex_path} {' '.join(shlex.quote(a) for a in args)}"
 
-    try:
-        if system == "Darwin":
-            subprocess.run(["pbcopy"], input=text.encode(), check=True)
-
-        elif system == "Windows":
-            subprocess.run(["clip"], input=text.encode(), check=True)
-
-        else:
-            subprocess.run(["xclip", "-selection", "clipboard"], input=text.encode(), check=True)
-
-        return True
-    except:
-        return False
-    
-
-# ---------------------------------------------------------------------------
-# Terminal launcher
-# ---------------------------------------------------------------------------
-def launch_cortex_in_terminal(args):
-    system = platform.system()
-
-    cmd = ["cortex"] + args
-
-    if system == "Darwin":  # macOS
-        subprocess.Popen(["open", "-a", "Terminal", "--args"] + cmd)
-
-    elif system == "Windows":
-        subprocess.Popen([
-            "cmd.exe", "/c", "start", "cmd.exe", "/k"
-        ] + cmd)
-
-    else:  # Linux
-        subprocess.Popen([
-            "x-terminal-emulator", "-e"
-        ] + cmd)
+    if sys.platform == "darwin":
+        import tempfile
+        script_path = Path(tempfile.mktemp(suffix=".command"))
+        script_path.write_text(f"#!/bin/bash\n{cmd_str}\n")
+        script_path.chmod(0o755)
+        subprocess.Popen(["open", "-a", "Terminal", str(script_path)])
+    elif sys.platform == "win32":
+        subprocess.Popen(["cmd", "/c", "start", "cmd", "/k", cmd_str])
+    else:
+        # Linux/BSD — try common terminal emulators
+        for term_cmd in [
+            ["gnome-terminal", "--", "bash", "-c", cmd_str],
+            ["xfce4-terminal", "-e", cmd_str],
+            ["konsole", "-e", "bash", "-c", cmd_str],
+            ["xterm", "-e", cmd_str],
+        ]:
+            if shutil.which(term_cmd[0]):
+                subprocess.Popen(term_cmd)
+                return
+        # Fallback: run in background (no interactive terminal)
+        subprocess.Popen(["bash", "-c", cmd_str])
 
 
 # ---------------------------------------------------------------------------
@@ -399,30 +394,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .welcome h2 { font-size: 20px; color: var(--text); margin-bottom: 8px; }
   .welcome p { font-size: 14px; max-width: 400px; margin: 0 auto; line-height: 1.5; }
 
-  /* Chat input bar */
-  .chat-input-bar {
-    padding: 12px 20px 16px; border-top: 1px solid var(--border);
-    background: var(--surface); display: none;
-  }
-  .chat-input-wrap {
-    max-width: 820px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end;
-  }
-  .chat-input-wrap textarea {
-    flex: 1; resize: none; padding: 10px 14px; border-radius: 10px;
-    border: 1px solid var(--border); background: var(--surface2); color: var(--text);
-    font-size: 14px; font-family: var(--font); line-height: 1.5;
-    min-height: 44px; max-height: 120px; overflow-y: auto;
-  }
-  .chat-input-wrap textarea:focus { outline: none; border-color: var(--accent); }
-  .chat-input-wrap textarea::placeholder { color: var(--text2); }
-  .chat-send-btn {
-    width: 40px; height: 40px; border-radius: 10px; border: none;
-    background: var(--accent); color: #000; cursor: pointer;
-    font-size: 18px; display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0; transition: background 0.15s;
-  }
-  .chat-send-btn:hover { background: var(--accent-hover); }
-  .chat-send-btn:disabled { opacity: 0.4; cursor: default; }
+
 
   /* Loading spinner */
   .loading { text-align: center; padding: 40px; color: var(--text2); }
@@ -528,12 +500,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 
     <div class="chat-messages" id="chat-messages" style="display:none"></div>
 
-    <div class="chat-input-bar" id="chat-input-bar">
-      <div class="chat-input-wrap">
-        <textarea id="chat-input" rows="1" placeholder="Type a message — it will be copied to your clipboard when the session resumes..." onkeydown="handleInputKey(event)" oninput="autoGrow(this)"></textarea>
-        <button class="chat-send-btn" id="chat-send-btn" onclick="sendFromInput()" title="Send &amp; resume in Terminal">&#9654;</button>
-      </div>
-    </div>
+
 
     <div class="welcome" id="welcome">
       <div>
@@ -841,10 +808,8 @@ async function selectSession(id) {
   document.getElementById('ch-conn').textContent = s.connection_name || '';
   document.getElementById('ch-dir').textContent = shortDir(s.working_dir);
 
-  // Show messages area + input bar, hide welcome
+  // Show messages area, hide welcome
   document.getElementById('welcome').style.display = 'none';
-  document.getElementById('chat-input-bar').style.display = 'block';
-  document.getElementById('chat-input').value = '';
   const msgEl = document.getElementById('chat-messages');
   msgEl.style.display = 'block';
 
@@ -953,15 +918,10 @@ async function importSession() {
   await loadSessions();
 }
 
-async function resumeSession(id, message = '') {
-  const body = message ? { message } : {};
-  const res = await api(`/sessions/${id}/resume`, 'POST', body);
+async function resumeSession(id) {
+  const res = await api(`/sessions/${id}/resume`, 'POST', {});
   if (res.error) { toast(res.error, 'error'); return; }
-  if (res.clipboard) {
-    toast('Resumed in Terminal — message copied, paste with Cmd+V');
-  } else {
-    toast('Resumed in new terminal');
-  }
+  toast('Resumed in new terminal');
 }
 
 async function saveEdit() {
@@ -993,7 +953,6 @@ async function deleteSession(id) {
     activeSession = null;
     document.getElementById('chat-header').style.display = 'none';
     document.getElementById('chat-messages').style.display = 'none';
-    document.getElementById('chat-input-bar').style.display = 'none';
     document.getElementById('welcome').style.display = 'flex';
   }
   delete msgCache[id];
@@ -1005,31 +964,6 @@ async function togglePin(id) {
   if (!s) return;
   await api(`/sessions/${id}/update`, 'POST', { pinned: s.pinned ? 0 : 1 });
   await loadSessions();
-}
-
-// ---- Chat input bar ----
-function handleInputKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendFromInput();
-  }
-}
-
-function autoGrow(el) {
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
-}
-
-async function sendFromInput() {
-  const input = document.getElementById('chat-input');
-  const msg = input.value.trim();
-  if (!activeSession) return;
-  // Resume with or without message
-  await resumeSession(activeSession, msg);
-  input.value = '';
-  autoGrow(input);
-  // Invalidate cache so next view refreshes
-  delete msgCache[activeSession];
 }
 
 // ---- Load sessions ----
@@ -1125,7 +1059,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         messages = []
         try:
-            with open(history_file) as f:
+            with open(history_file, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -1179,8 +1113,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             "text": "\n\n".join(texts),
                             "tools": tool_calls,
                         })
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Error reading history file {history_file}: {e}")
 
         # Limit to last 200 messages for very long conversations
         if len(messages) > 200:
@@ -1252,10 +1186,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         meta = {}
         if meta_file.exists():
             try:
-                with open(meta_file) as f:
+                with open(meta_file, encoding="utf-8") as f:
                     meta = json.load(f)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Error reading meta file {meta_file}: {e}")
 
         connection_name = conn_override or meta.get("connection_name", "")
         preview = extract_preview(sid)
@@ -1277,9 +1211,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return self._json({"ok": True})
 
     def _handle_resume(self, db_id: int):
-        body = self._read_body()
-        message = body.get("message", "").strip()
-
         db = get_db()
         row = db.execute("SELECT * FROM sessions WHERE id = ?", (db_id,)).fetchone()
         if not row:
@@ -1291,9 +1222,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if row["working_dir"]:
             args += ["-w", row["working_dir"]]
 
-        # Copy message to clipboard so user can paste into the resumed session
-        clipboard = copy_to_clipboard(message) if message else False
-
         launch_cortex_in_terminal(args)
 
         db.execute(
@@ -1301,7 +1229,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             (datetime.now(timezone.utc).isoformat(), db_id),
         )
         db.commit()
-        return self._json({"ok": True, "clipboard": clipboard})
+        return self._json({"ok": True})
 
     def _handle_update(self, db_id: int):
         body = self._read_body()
@@ -1348,6 +1276,8 @@ def main():
 
     # Init DB and do initial scan
     db = get_db()
+    # db.execute("DELETE FROM sessions")
+    # db.commit()
     added = scan_conversations(db)
     db.close()
 
